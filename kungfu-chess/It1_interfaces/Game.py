@@ -1,6 +1,6 @@
 import time
 from pathlib import Path
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 from Board import Board
 from Piece import Piece
 from PieceFactory import PieceFactory
@@ -8,6 +8,12 @@ from KeyboardListener import KeyboardListener
 from CommandProcessor import CommandProcessor
 import cv2
 from img import Img
+from EventBus import EventBus
+from ScoreManager import ScoreManager
+from MoveLogger import MoveLogger
+from SoundManager import SoundManager
+from AnimationManager import AnimationManager
+from Enums import EventTypes
 
 
 class Game:
@@ -30,7 +36,12 @@ class Game:
         self.start_time = time.monotonic()
         self.pos_to_piece: Dict[Tuple[int, int], Piece] = {}
         self.piece_factory = PieceFactory(pieces_root, board_layout_csv, self.pos_to_piece, board)
-        self.command_processor = CommandProcessor(board, self.pos_to_piece)
+        self.event_bus = EventBus()
+        self.command_processor = CommandProcessor(board, self.pos_to_piece, self.event_bus)
+        self.score_manager = ScoreManager()
+        self.move_logger = MoveLogger()
+        self.sound_manager = SoundManager()
+        self.animation_manager = AnimationManager()
 
     @staticmethod
     def get_instance() -> "Game":
@@ -61,25 +72,26 @@ class Game:
         KeyboardListener.start_blue_listener(self.board, self.start_time, self.command_processor, self.pos_to_piece)
         KeyboardListener.start_green_listener(self.board, self.start_time, self.command_processor, self.pos_to_piece)
 
+        self.event_bus.publish(EventTypes.GAME_STARTED)
+        self._draw()
+        self._show()
+        time.sleep(5)
+
         while not self._is_win():
 
             now = self.game_time_ms()
-
             self.command_processor.clear()
-
             for piece in self.pos_to_piece.values():
                 piece.update(now)
-
             self._draw()
-
             if not self._show():
                 break
-
             # self._resolve_collisions()
 
         KeyboardListener.stop_blue_listener()
         KeyboardListener.stop_green_listener()
         self._announce_win()
+        time.sleep(5)
         cv2.destroyAllWindows()
 
     def _show(self) -> bool:
@@ -114,12 +126,24 @@ class Game:
         return len(kings) <= 1
 
     def _announce_win(self):
-        if len(self.pos_to_piece) == 0:
+        winner = None
+        blue_king = any(p.id == "bk" for p in self.pos_to_piece.values())
+        green_king = any(p.id == "gk" for p in self.pos_to_piece.values())
+
+        if not blue_king and not green_king:
             print("Draw.")
-        elif len(self.pos_to_piece) == 1:
-            print(f"{list(self.pos_to_piece.values())[0].id()} wins!")
+            winner = "draw"
+        elif not blue_king:
+            print("Green wins!")
+            winner = "green"
+        elif not green_king:
+            print("Blue wins!")
+            winner = "blue"
         else:
-            print("Game over.")
+            print("Game ongoing.")
+            winner = "ongoing"
+
+        self.event_bus.publish(EventTypes.GAME_ENDED, {"winner": winner})
 
     def remove_piece(self, cell: Tuple[int, int]):
         self.pos_to_piece.pop(cell, None)

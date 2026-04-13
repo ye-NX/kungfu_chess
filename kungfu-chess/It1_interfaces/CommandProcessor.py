@@ -2,13 +2,16 @@ from typing import List, Tuple
 from Command import Command
 from Enums import StateTypes as Types
 from Board import Board
+from EventBus import EventBus
+from Enums import EventTypes
 
 class CommandProcessor:
 
-    def __init__(self, board: Board, pos_to_piece: dict):
+    def __init__(self, board: Board, pos_to_piece: dict, event_bus: EventBus):
         self._queue: List[Command] = []
         self.board = board
         self._pos_to_piece = pos_to_piece
+        self.event_bus = event_bus
 
 
     def empty(self):
@@ -27,8 +30,18 @@ class CommandProcessor:
                 dst_cell = Command.algebraic_to_cell(cmd.params[1])
                 src_piece = self._pos_to_piece[src_cell]
                 del self._pos_to_piece[src_cell]
+                
+                captured_piece = None
+                if dst_cell in self._pos_to_piece:
+                    captured_piece = self._pos_to_piece[dst_cell]
+                
                 self._pos_to_piece[dst_cell] = src_piece
                 src_piece.reset(cmd.timestamp, src_cell, cmd.type, dst_cell)
+
+                # Publish events
+                self.event_bus.publish(EventTypes.MOVE_MADE, {"src": src_cell, "dst": dst_cell, "piece": src_piece.id})
+                if captured_piece:
+                    self.event_bus.publish(EventTypes.PIECE_CAPTURED, {"piece": captured_piece.id, "position": dst_cell})
 
                 #if the is piece at dst cell, the function game.solve_collision will solve it
 
@@ -95,7 +108,3 @@ class CommandProcessor:
             r += step_row
             c += step_col
         return True
-
-
-
-
